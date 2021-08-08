@@ -539,38 +539,24 @@ ssl_teardown_connection(socket_private_t *priv)
 static ssize_t
 __socket_ssl_readv(rpc_transport_t *this, struct iovec *opvector, int opcount)
 {
-    socket_private_t *priv = NULL;
-    int sock = -1;
-    int ret = -1;
-
-    priv = this->private;
-    sock = priv->sock;
+    socket_private_t *priv = this->private;
 
     if (priv->use_ssl) {
-        gf_log(this->name, GF_LOG_TRACE, "***** reading over SSL");
-        ret = ssl_read_one(this, opvector->iov_base, opvector->iov_len);
+        return ssl_read_one(this, opvector->iov_base, opvector->iov_len);
     } else {
-        gf_log(this->name, GF_LOG_TRACE, "***** reading over non-SSL");
-        ret = sys_readv(sock, opvector, IOV_MIN(opcount));
+        return sys_readv(priv->sock, opvector, IOV_MIN(opcount));
     }
-
-    return ret;
 }
 
 static ssize_t
 __socket_ssl_read(rpc_transport_t *this, void *buf, size_t count)
 {
-    struct iovec iov = {
-        0,
-    };
-    int ret = -1;
+    struct iovec iov;
 
     iov.iov_base = buf;
     iov.iov_len = count;
 
-    ret = __socket_ssl_readv(this, &iov, 1);
-
-    return ret;
+    return __socket_ssl_readv(this, &iov, 1);
 }
 
 static int
@@ -578,12 +564,11 @@ __socket_cached_read(rpc_transport_t *this, struct iovec *opvector, int opcount)
 {
     socket_private_t *priv = NULL;
     struct gf_sock_incoming *in = NULL;
-    int req_len = -1;
+    int req_len;
     int ret = -1;
 
     priv = this->private;
     in = &priv->incoming;
-    req_len = iov_length(opvector, opcount);
 
     if (in->record_state == SP_STATE_READING_FRAGHDR) {
         in->ra_read = 0;
@@ -617,6 +602,7 @@ __socket_cached_read(rpc_transport_t *this, struct iovec *opvector, int opcount)
 
     /* serve cached */
     if (in->ra_served < in->ra_read) {
+        req_len = iov_length(opvector, opcount);
         ret = iov_load(opvector, opcount, &in->ra_buf[in->ra_served],
                        min(req_len, (in->ra_read - in->ra_served)));
 
@@ -667,15 +653,33 @@ __socket_rwv(rpc_transport_t *this, struct iovec *vector, int count,
              int write)
 {
     socket_private_t *priv = NULL;
-    int sock = -1;
+    int sock;
     int ret = -1;
     struct iovec *opvector = NULL;
     int opcount = 0;
     int moved = 0;
 
-    GF_VALIDATE_OR_GOTO("socket", this->private, out);
-
     priv = this->private;
+
+    if (priv->use_ssl && !priv->ssl_ssl) {
+        /*
+         * We could end up here with priv->ssl_ssl still NULL
+         * if (a) the connection failed and (b) some fool
+         * called other socket functions anyway.  Demoting to
+         * non-SSL might be insecure, so just fail it outright.
+         */
+        ret = -1;
+        gf_log(this->name, GF_LOG_TRACE, "### no priv->ssl_ssl yet; ret = -1;");
+        goto out;
+    }
+
+    if (!write) {
+        if (priv->use_ssl)
+            gf_log(this->name, GF_LOG_TRACE, "***** reading over SSL");
+        else
+            gf_log(this->name, GF_LOG_TRACE, "***** reading over non-SSL");
+    }
+
     sock = priv->sock;
 
     opvector = vector;
@@ -693,17 +697,7 @@ __socket_rwv(rpc_transport_t *this, struct iovec *vector, int count,
             --opcount;
             continue;
         }
-        if (priv->use_ssl && !priv->ssl_ssl) {
-            /*
-             * We could end up here with priv->ssl_ssl still NULL
-             * if (a) the connection failed and (b) some fool
-             * called other socket functions anyway.  Demoting to
-             * non-SSL might be insecure, so just fail it outright.
-             */
-            ret = -1;
-            gf_log(this->name, GF_LOG_TRACE,
-                   "### no priv->ssl_ssl yet; ret = -1;");
-        } else if (write) {
+        if (write) {
             if (priv->use_ssl) {
                 ret = ssl_write_one(this, opvector->iov_base,
                                     opvector->iov_len);
@@ -711,26 +705,27 @@ __socket_rwv(rpc_transport_t *this, struct iovec *vector, int count,
                 ret = sys_writev(sock, opvector, IOV_MIN(opcount));
             }
 
-            if ((ret == 0) || ((ret < 0) && (errno == EAGAIN))) {
+            if (ret > 0)
+                this->total_bytes_write += ret;
+            else if ((ret == 0) || ((ret < 0) && (errno == EAGAIN))) {
                 /* done for now */
                 break;
-            } else if (ret > 0)
-                this->total_bytes_write += ret;
+            }
         } else {
             ret = __socket_cached_read(this, opvector, opcount);
-            if (ret == 0) {
+            if (ret > 0)
+                this->total_bytes_read += ret;
+            else if (ret == 0) {
                 gf_log(this->name, GF_LOG_DEBUG,
                        "EOF on socket %d (errno:%d:%s); returning ENODATA",
                        sock, errno, strerror(errno));
 
                 errno = ENODATA;
                 ret = -1;
-            }
-            if ((ret < 0) && (errno == EAGAIN)) {
+            } else if ((ret < 0) && (errno == EAGAIN)) {
                 /* done for now */
                 break;
-            } else if (ret > 0)
-                this->total_bytes_read += ret;
+            }
         }
 
         if (ret == 0) {
@@ -741,8 +736,7 @@ __socket_rwv(rpc_transport_t *this, struct iovec *vector, int count,
             opcount = -1;
             errno = ENOTCONN;
             break;
-        }
-        if (ret < 0) {
+        } else if (ret < 0) {
             if (errno == EINTR)
                 continue;
 
@@ -1117,7 +1111,7 @@ err:
 static int
 __socket_connect_finish(int fd)
 {
-    int ret = -1;
+    int ret;
     int optval = 0;
     socklen_t optlen = sizeof(int);
 
@@ -1134,9 +1128,7 @@ __socket_connect_finish(int fd)
 static void
 __socket_reset(rpc_transport_t *this)
 {
-    socket_private_t *priv = NULL;
-
-    priv = this->private;
+    socket_private_t *priv = this->private;
 
     /* TODO: use mem-pool on incoming data */
 
@@ -1206,16 +1198,11 @@ socket_set_last_frag_header_size(uint32_t size, char *haddr)
 }
 
 static struct ioq *
-__socket_ioq_new(rpc_transport_t *this, rpc_transport_msg_t *msg)
+__socket_ioq_new(rpc_transport_msg_t *msg)
 {
     struct ioq *entry = NULL;
     int count = 0;
     uint32_t size = 0;
-
-    /* TODO: use mem-pool */
-    entry = GF_CALLOC(1, sizeof(*entry), gf_common_mt_ioq);
-    if (!entry)
-        return NULL;
 
     count = msg->rpchdrcount + msg->proghdrcount + msg->progpayloadcount;
 
@@ -1226,13 +1213,19 @@ __socket_ioq_new(rpc_transport_t *this, rpc_transport_msg_t *msg)
            iov_length(msg->progpayload, msg->progpayloadcount);
 
     if (size > RPC_MAX_FRAGMENT_SIZE) {
-        gf_log(this->name, GF_LOG_ERROR,
+        gf_log(THIS->name, GF_LOG_ERROR,
                "msg size (%u) bigger than the maximum allowed size on "
                "sockets (%u)",
                size, RPC_MAX_FRAGMENT_SIZE);
-        GF_FREE(entry);
         return NULL;
     }
+
+    /* TODO: use mem-pool */
+    entry = GF_CALLOC(1, sizeof(*entry), gf_common_mt_ioq);
+    if (!entry)
+        return NULL;
+
+    INIT_LIST_HEAD(&entry->list);
 
     socket_set_last_frag_header_size(size, (char *)&entry->fraghdr);
 
@@ -1264,25 +1257,18 @@ __socket_ioq_new(rpc_transport_t *this, rpc_transport_msg_t *msg)
     if (msg->iobref != NULL)
         entry->iobref = iobref_ref(msg->iobref);
 
-    INIT_LIST_HEAD(&entry->list);
-
     return entry;
 }
 
 static void
 __socket_ioq_entry_free(struct ioq *entry)
 {
-    GF_VALIDATE_OR_GOTO("socket", entry, out);
-
     list_del_init(&entry->list);
     if (entry->iobref)
         iobref_unref(entry->iobref);
 
     /* TODO: use mem-pool */
     GF_FREE(entry);
-
-out:
-    return;
 }
 
 static void
@@ -1292,14 +1278,16 @@ __socket_ioq_flush(socket_private_t *priv)
 
     while (!list_empty(&priv->ioq)) {
         entry = priv->ioq_next;
-        __socket_ioq_entry_free(entry);
+        if (entry)
+            __socket_ioq_entry_free(entry);
     }
 }
 
 static int
-__socket_ioq_churn_entry(rpc_transport_t *this, struct ioq *entry)
+__socket_ioq_churn_entry(rpc_transport_t *this, struct ioq *entry,
+                         gf_boolean_t free_entry)
 {
-    int ret = -1;
+    int ret;
 
     ret = __socket_writev(this, entry->pending_vector, entry->pending_count,
                           &entry->pending_vector, &entry->pending_count);
@@ -1307,7 +1295,8 @@ __socket_ioq_churn_entry(rpc_transport_t *this, struct ioq *entry)
     if (ret == 0) {
         /* current entry was completely written */
         GF_ASSERT(entry->pending_count == 0);
-        __socket_ioq_entry_free(entry);
+        if (free_entry)
+            __socket_ioq_entry_free(entry);
     }
 
     return ret;
@@ -1326,7 +1315,7 @@ __socket_ioq_churn(rpc_transport_t *this)
         /* pick next entry */
         entry = priv->ioq_next;
 
-        ret = __socket_ioq_churn_entry(this, entry);
+        ret = __socket_ioq_churn_entry(this, entry, _gf_true);
 
         if (ret != 0)
             break;
@@ -2571,22 +2560,21 @@ socket_connect_finish(rpc_transport_t *this)
 
         ret = __socket_connect_finish(priv->sock);
 
-        if ((ret < 0) && (errno == EINPROGRESS))
-            ret = 1;
-
-        if ((ret < 0) && (errno != EINPROGRESS)) {
-            if (!priv->connect_finish_log) {
-                gf_log(this->name, GF_LOG_ERROR,
-                       "connection to %s failed (%s); "
-                       "disconnecting socket",
-                       this->peerinfo.identifier, strerror(errno));
-                priv->connect_finish_log = 1;
+        if (ret < 0) {
+            if (errno == EINPROGRESS)
+                ret = 1;
+            else {
+                if (!priv->connect_finish_log) {
+                    gf_log(this->name, GF_LOG_ERROR,
+                           "connection to %s failed (%s); "
+                           "disconnecting socket",
+                           this->peerinfo.identifier, strerror(errno));
+                    priv->connect_finish_log = 1;
+                }
+                __socket_disconnect(this);
+                goto unlock;
             }
-            __socket_disconnect(this);
-            goto unlock;
-        }
-
-        if (ret == 0) {
+        } else if (ret == 0) {
             notify_rpc = 1;
 
             this->myinfo.sockaddr_len = sizeof(this->myinfo.sockaddr);
@@ -3780,17 +3768,18 @@ static int32_t
 socket_submit_outgoing_msg(rpc_transport_t *this, rpc_transport_msg_t *msg)
 {
     int ret = -1;
-    char need_poll_out = 0;
-    char need_append = 1;
+    gf_boolean_t need_poll_out = _gf_false;
+    gf_boolean_t free_entry = _gf_false;
     struct ioq *entry = NULL;
-    glusterfs_ctx_t *ctx = NULL;
     socket_private_t *priv = NULL;
 
     GF_VALIDATE_OR_GOTO("socket", this, out);
-    GF_VALIDATE_OR_GOTO("socket", this->private, out);
-
     priv = this->private;
-    ctx = this->ctx;
+    GF_VALIDATE_OR_GOTO("socket", priv, out);
+
+    entry = __socket_ioq_new(msg);
+    if (!entry)
+        goto out;
 
     pthread_mutex_lock(&priv->out_lock);
     {
@@ -3800,32 +3789,29 @@ socket_submit_outgoing_msg(rpc_transport_t *this, rpc_transport_msg_t *msg)
                        "not connected (priv->connected = %d)", priv->connected);
                 priv->submit_log = 1;
             }
+            free_entry = _gf_true;
             goto unlock;
         }
 
         priv->submit_log = 0;
-        entry = __socket_ioq_new(this, msg);
-        if (!entry)
-            goto unlock;
 
         if (list_empty(&priv->ioq)) {
-            ret = __socket_ioq_churn_entry(this, entry);
+            ret = __socket_ioq_churn_entry(this, entry, _gf_false);
 
-            if (ret == 0) {
-                need_append = 0;
-            }
-            if (ret > 0) {
-                need_poll_out = 1;
+            if (ret == 0) { /* current entry was completely written */
+                free_entry = _gf_true;
+            } else if (ret > 0) {
+                need_poll_out = _gf_true;
             }
         }
 
-        if (need_append) {
+        if (!free_entry) {
             list_add_tail(&entry->list, &priv->ioq);
             ret = 0;
         }
         if (need_poll_out) {
             /* first entry to wait. continue writing on POLLOUT */
-            priv->idx = gf_event_select_on(ctx->event_pool, priv->sock,
+            priv->idx = gf_event_select_on(this->ctx->event_pool, priv->sock,
                                            priv->idx, -1, 1);
         }
     }
@@ -3833,6 +3819,8 @@ unlock:
     pthread_mutex_unlock(&priv->out_lock);
 
 out:
+    if (free_entry)
+        __socket_ioq_entry_free(entry);
     return ret;
 }
 
@@ -4101,7 +4089,7 @@ threadid_func(CRYPTO_THREADID *id)
      */
     CRYPTO_THREADID_set_numeric(id, (unsigned long)pthread_self());
 }
-#else /* older openssl */
+#else  /* older openssl */
 static unsigned long
 legacy_threadid_func(void)
 {
@@ -4357,7 +4345,7 @@ ssl_setup_connection_params(rpc_transport_t *this)
                        "DH ciphers are disabled.",
                        dh_param, ERR_error_string(err, NULL));
             }
-#else /* HAVE_OPENSSL_DH_H */
+#else  /* HAVE_OPENSSL_DH_H */
             BIO_free(bio);
             gf_log(this->name, GF_LOG_ERROR, "OpenSSL has no DH support");
 #endif /* HAVE_OPENSSL_DH_H */
@@ -4384,7 +4372,7 @@ ssl_setup_connection_params(rpc_transport_t *this)
                        "ECDH ciphers are disabled.",
                        ec_curve, ERR_error_string(err, NULL));
             }
-#else /* HAVE_OPENSSL_ECDH_H */
+#else  /* HAVE_OPENSSL_ECDH_H */
             gf_log(this->name, GF_LOG_ERROR, "OpenSSL has no ECDH support");
 #endif /* HAVE_OPENSSL_ECDH_H */
         }
