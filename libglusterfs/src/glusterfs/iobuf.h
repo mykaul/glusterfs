@@ -48,20 +48,9 @@ struct iobuf_arena;
 /* expandable and contractable pool of memory, internally broken into arenas */
 struct iobuf_pool;
 
-struct iobuf_init_config {
-    uint32_t pagesize;
-    uint32_t num_pages;
-};
-
 struct iobuf {
-    union {
-        struct list_head list;
-        struct {
-            struct iobuf *next;
-            struct iobuf *prev;
-        };
-    };
     gf_atomic_t ref; /* 0 == passive, >0 == active */
+    uint64_t slot_index;
     struct iobuf_arena *iobuf_arena;
 
     void *free_ptr; /* in case of stdalloc, this is the
@@ -80,10 +69,7 @@ struct iobuf_arena {
         };
     };
 
-    pthread_mutex_t mutex;
     uint32_t page_size; /* size of all iobufs in this arena */
-    uint32_t page_count;
-    uint32_t passive_cnt;
     uint32_t arena_size;
     /* this is equal to rounded_size * num_iobufs.
        (rounded_size comes with gf_iobuf_get_pagesize().) */
@@ -93,27 +79,21 @@ struct iobuf_arena {
     void *mem_base;
     struct iobuf *iobufs; /* allocated iobufs list */
 
-    struct list_head passive_list;
-    //    struct list_head active_list;
+    uint64_t lower_slots;
     uint64_t alloc_cnt; /* total allocs in this pool */
-    uint32_t active_cnt;
-    uint32_t max_active; /* max active buffers at a given time */
 };
 
 struct iobuf_pool {
     pthread_mutex_t mutex;
-    uint32_t arena_size;        /* size of memory region in
-                                 arena */
     uint32_t default_page_size; /* default size of iobuf */
+    uint32_t arena_cnt;
 
-    // struct list_head all_arenas;
     struct list_head arenas[GF_VARIABLE_IOBUF_COUNT];
     /* array of arenas. Each element of the array is a list of arenas
        holding iobufs of particular page_size */
 
     uint64_t request_misses; /* mostly the requests for higher
                                value of iobufs */
-    uint32_t arena_cnt;
 };
 
 struct iobuf_pool *
