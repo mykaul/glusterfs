@@ -18,7 +18,7 @@
 #include "glusterfs/locking.h"  // for gf_lock_t
 #include "glusterfs/list.h"
 
-#define GF_VARIABLE_IOBUF_COUNT 32
+#define IOBUF_ARENA_MAX_INDEX 9
 
 /* Lets try to define the new anonymous mapping
  * flag, in case the system is still using the
@@ -50,14 +50,14 @@ struct iobuf_pool;
 
 struct iobuf {
     gf_atomic_t ref; /* 0 == passive, >0 == active */
-    uint64_t slot_index;
+    void *ptr;       /* usable memory region by the consumer */
+
+    gf_lock_t lock; /* for ->ptr and ->ref */
+    int64_t slot_index;
     struct iobuf_arena *iobuf_arena;
 
     void *free_ptr; /* in case of stdalloc, this is the
                        one to be freed */
-    void *ptr;      /* usable memory region by the consumer */
-
-    gf_lock_t lock; /* for ->ptr and ->ref */
 };
 
 struct iobuf_arena {
@@ -88,7 +88,7 @@ struct iobuf_pool {
     uint32_t default_page_size; /* default size of iobuf */
     uint32_t arena_cnt;
 
-    struct list_head arenas[GF_VARIABLE_IOBUF_COUNT];
+    struct list_head arenas[IOBUF_ARENA_MAX_INDEX];
     /* array of arenas. Each element of the array is a list of arenas
        holding iobufs of particular page_size */
 
