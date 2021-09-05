@@ -30,6 +30,7 @@ static const uint32_t gf_iobuf_init_config[IOBUF_ARENA_MAX_INDEX] = {
     32 * GF_UNIT_KB,
     DEFAULT_PAGE_SIZE,
     256 * GF_UNIT_KB,
+    // 260 * GF_UNIT_KB,
 };
 
 static int32_t
@@ -306,14 +307,17 @@ iobuf_get_from_stdalloc(const size_t page_size)
 
     /* Hold a ref because you are allocating and using it */
     GF_ATOMIC_INIT(iobuf->ref, 1);
-    iobuf->slot_index = -1;  // means stdalloc
     /* 4096 is the alignment */
     iobuf->free_ptr = GF_MALLOC(((page_size + GF_IOBUF_ALIGN_SIZE) - 1),
                                 gf_common_mt_char);
-    if (caa_unlikely(!iobuf->free_ptr))
+    if (caa_unlikely(!iobuf->free_ptr)) {
+        gf_msg_callingfn(THIS->name, GF_LOG_ERROR, 0, LG_MSG_IOBUFS_NOT_FOUND,
+                         "failed to allocate free_ptr");
         goto out;
+    }
 
     iobuf->ptr = GF_ALIGN_BUF(iobuf->free_ptr, GF_IOBUF_ALIGN_SIZE);
+    iobuf->slot_index = -((page_size));
     LOCK_INIT(&iobuf->lock);
 
     return iobuf;
@@ -324,7 +328,7 @@ out:
         iobuf = NULL;
     }
 
-    return iobuf;
+    return NULL;
 }
 
 struct iobuf *
@@ -338,11 +342,17 @@ iobuf_get2(struct iobuf_pool *iobuf_pool, size_t page_size)
         page_size = iobuf_pool->default_page_size;
     }
 
-    rounded_size = gf_iobuf_get_pagesize(page_size, &index);
+    if (page_size > 8129)
+        rounded_size = -1;
+    else
+        rounded_size = gf_iobuf_get_pagesize(page_size, &index);
     if (caa_unlikely(rounded_size < 0)) {
         /* make sure to provide the requested buffer with standard
            memory allocations */
         iobuf = iobuf_get_from_stdalloc(page_size);
+        if (iobuf)
+            gf_smsg("iobuf-get2", GF_LOG_ERROR, 0, LG_MSG_PAGE_SIZE_EXCEEDED,
+                    "iobuf created!", iobuf, NULL);
 
         gf_msg_debug("iobuf", 0,
                      "request for iobuf of size %zu "
@@ -484,7 +494,7 @@ out:
 void
 iobuf_unref(struct iobuf *iobuf)
 {
-    int ref;
+    int64_t ref;
 
     GF_VALIDATE_OR_GOTO("iobuf", iobuf, out);
 
@@ -565,7 +575,7 @@ out:
 void
 iobref_unref(struct iobref *iobref)
 {
-    int ref;
+    int64_t ref;
 
     GF_VALIDATE_OR_GOTO("iobuf", iobref, out);
     ref = GF_ATOMIC_DEC(iobref->ref);
@@ -695,6 +705,11 @@ iobuf_size(struct iobuf *iobuf)
     size_t size = 0;
 
     GF_VALIDATE_OR_GOTO("iobuf", iobuf, out);
+
+    if (iobuf->slot_index < 0) {  // regular allocation
+        size = -iobuf->slot_index;
+        goto out;
+    }
 
     if (!iobuf->iobuf_arena) {
         gf_smsg(THIS->name, GF_LOG_WARNING, 0, LG_MSG_ARENA_NOT_FOUND, NULL);

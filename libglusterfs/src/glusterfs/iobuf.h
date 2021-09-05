@@ -69,17 +69,16 @@ struct iobuf_arena {
         };
     };
 
-    uint32_t page_size; /* size of all iobufs in this arena */
-    uint32_t arena_size;
+    uint64_t lower_slots;
+    struct iobuf_pool *iobuf_pool;
+    struct iobuf *iobufs; /* allocated iobufs list */
+    uint32_t page_size;   /* size of all iobufs in this arena */
     /* this is equal to rounded_size * num_iobufs.
        (rounded_size comes with gf_iobuf_get_pagesize().) */
-
-    struct iobuf_pool *iobuf_pool;
+    uint32_t arena_size;
 
     void *mem_base;
-    struct iobuf *iobufs; /* allocated iobufs list */
 
-    uint64_t lower_slots;
     uint64_t alloc_cnt; /* total allocs in this pool */
 };
 
@@ -110,8 +109,10 @@ void
 iobuf_to_iovec(struct iobuf *iob, struct iovec *iov);
 
 #define iobuf_ptr(iob) ((iob)->ptr)
-#define iobpool_default_pagesize(iobpool) ((iobpool)->default_page_size)
-#define iobuf_pagesize(iob) (iob->iobuf_arena->page_size)
+#define iobuf_pagesize(iob)                                                    \
+    (iob->slot_index >= 0 ? iob->iobuf_arena->page_size : -(iob->slot_index))
+
+//#define iobuf_pagesize(iob) (iob->iobuf_arena->page_size)
 
 struct iobref {
     gf_lock_t lock;
