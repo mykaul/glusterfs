@@ -18,7 +18,7 @@
 #include "glusterfs/locking.h"  // for gf_lock_t
 #include "glusterfs/list.h"
 
-#define IOBUF_ARENA_MAX_INDEX 9
+#define IOBUF_ARENA_MAX_INDEX 5
 
 /* Lets try to define the new anonymous mapping
  * flag, in case the system is still using the
@@ -50,14 +50,13 @@ struct iobuf_pool;
 
 struct iobuf {
     gf_atomic_t ref; /* 0 == passive, >0 == active */
+    void *free_ptr;  /* in case of stdalloc, this is the
+                        one to be freed */
     void *ptr;       /* usable memory region by the consumer */
-
-    gf_lock_t lock; /* for ->ptr and ->ref */
     int64_t slot_index;
     struct iobuf_arena *iobuf_arena;
 
-    void *free_ptr; /* in case of stdalloc, this is the
-                       one to be freed */
+    gf_lock_t lock; /* for ->ptr and ->ref */
 };
 
 struct iobuf_arena {
@@ -77,22 +76,17 @@ struct iobuf_arena {
        (rounded_size comes with gf_iobuf_get_pagesize().) */
     uint32_t arena_size;
 
-    void *mem_base;
-
     uint64_t alloc_cnt; /* total allocs in this pool */
+    void *mem_base;
 };
 
 struct iobuf_pool {
     pthread_mutex_t mutex;
     uint32_t default_page_size; /* default size of iobuf */
     uint32_t arena_cnt;
-
     struct list_head arenas[IOBUF_ARENA_MAX_INDEX];
     /* array of arenas. Each element of the array is a list of arenas
        holding iobufs of particular page_size */
-
-    uint64_t request_misses; /* mostly the requests for higher
-                               value of iobufs */
 };
 
 struct iobuf_pool *
@@ -111,8 +105,6 @@ iobuf_to_iovec(struct iobuf *iob, struct iovec *iov);
 #define iobuf_ptr(iob) ((iob)->ptr)
 #define iobuf_pagesize(iob)                                                    \
     (iob->slot_index >= 0 ? iob->iobuf_arena->page_size : -(iob->slot_index))
-
-//#define iobuf_pagesize(iob) (iob->iobuf_arena->page_size)
 
 struct iobref {
     gf_lock_t lock;
