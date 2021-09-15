@@ -69,6 +69,7 @@ struct iobuf_arena {
     };
 
     uint64_t lower_slots;
+    uint64_t higher_slots;
     struct iobuf_pool *iobuf_pool;
     struct iobuf *iobufs; /* allocated iobufs list */
     uint32_t page_size;   /* size of all iobufs in this arena */
@@ -87,6 +88,7 @@ struct iobuf_pool {
     struct list_head arenas[IOBUF_ARENA_MAX_INDEX];
     /* array of arenas. Each element of the array is a list of arenas
        holding iobufs of particular page_size */
+    //uint32_t gf_iobuf_init_config[IOBUF_ARENA_MAX_INDEX];
 };
 
 struct iobuf_pool *
@@ -132,7 +134,7 @@ iobuf_size(struct iobuf *iobuf);
 size_t
 iobref_size(struct iobref *iobref);
 void
-iobuf_stats_dump(struct iobuf_pool *iobuf_pool);
+iobuf_stats_dump(struct iobuf_pool *iobuf_pool, const char *name);
 
 struct iobuf *
 iobuf_get2(struct iobuf_pool *iobuf_pool, size_t page_size);
