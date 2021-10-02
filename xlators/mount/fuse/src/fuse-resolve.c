@@ -16,7 +16,7 @@ int
 fuse_resolve_continue(fuse_state_t *state);
 int
 fuse_resolve_entry_simple(fuse_state_t *state);
-int
+static int
 fuse_resolve_inode_simple(fuse_state_t *state);
 int
 fuse_migrate_fd(xlator_t *this, fd_t *fd, xlator_t *old_subvol,
@@ -216,24 +216,23 @@ fuse_resolve_gfid(fuse_state_t *state)
  * 1 - resolved neither parent nor entry
  */
 
-int
+static int
 fuse_resolve_parent_simple(fuse_state_t *state)
 {
     fuse_resolve_t *resolve = NULL;
     loc_t *loc = NULL;
     inode_t *parent = NULL;
     inode_t *inode = NULL;
-    xlator_t *this = NULL;
+    xlator_t *saved_this = THIS;
 
     resolve = state->resolve_now;
     loc = state->loc_now;
-    this = state->this;
 
     loc->name = resolve->bname;
 
     parent = resolve->parhint;
     if (parent->table == state->itable) {
-        if (inode_needs_lookup(parent, THIS))
+        if (inode_needs_lookup(parent, saved_this))
             return 1;
 
         /* no graph switches since */
@@ -248,7 +247,7 @@ fuse_resolve_parent_simple(fuse_state_t *state)
          * have been there even though it need not have (bug #804592).
          */
 
-        if (loc->inode && inode_needs_lookup(loc->inode, THIS)) {
+        if (loc->inode && inode_needs_lookup(loc->inode, saved_this)) {
             inode_unref(loc->inode);
             loc->inode = NULL;
             return -1;
@@ -268,7 +267,7 @@ fuse_resolve_parent_simple(fuse_state_t *state)
         /* non decisive result - parent missing */
         return 1;
     }
-    if (inode_needs_lookup(parent, THIS)) {
+    if (inode_needs_lookup(parent, saved_this)) {
         inode_unref(parent);
         return 1;
     }
@@ -277,7 +276,7 @@ fuse_resolve_parent_simple(fuse_state_t *state)
     gf_uuid_copy(loc->pargfid, resolve->pargfid);
 
     inode = inode_grep(state->itable, parent, loc->name);
-    if (inode && !inode_needs_lookup(inode, this)) {
+    if (inode && !inode_needs_lookup(inode, state->this)) {
         loc->inode = inode;
         /* decisive result - resolution success */
         return 0;
@@ -308,7 +307,7 @@ fuse_resolve_parent(fuse_state_t *state)
     return 0;
 }
 
-int
+static int
 fuse_resolve_inode_simple(fuse_state_t *state)
 {
     fuse_resolve_t *resolve = NULL;
@@ -316,7 +315,6 @@ fuse_resolve_inode_simple(fuse_state_t *state)
     inode_t *inode = NULL;
 
     resolve = state->resolve_now;
-    loc = state->loc_now;
 
     inode = resolve->hint;
     if (inode->table == state->itable)
@@ -333,6 +331,7 @@ fuse_resolve_inode_simple(fuse_state_t *state)
 
     return 1;
 found:
+    loc = state->loc_now;
     loc->inode = inode;
     return 0;
 }
