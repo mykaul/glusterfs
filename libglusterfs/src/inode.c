@@ -130,7 +130,8 @@ Based on this, the code could be similar to this:
     }
 
 static inode_t *
-__inode_unref(inode_t *inode, bool clear);
+__inode_unref(xlator_t *this, inode_t *inode, bool clear,
+              bool do_root_gfid_check);
 
 static int
 inode_table_prune(inode_table_t *table);
@@ -209,7 +210,7 @@ __dentry_unset(dentry_t *dentry)
 
     if (dentry->parent) {
         GF_ATOMIC_DEC(dentry->parent->kids);
-        __inode_unref(dentry->parent, false);
+        __inode_unref(THIS, dentry->parent, false, true);
         dentry->parent = NULL;
     }
 
@@ -464,18 +465,20 @@ out:
 }
 
 static inode_t *
-__inode_unref(inode_t *inode, bool clear)
+__inode_unref(xlator_t *this, inode_t *inode, bool clear,
+              bool do_root_gfid_check)
 {
     int index = 0;
-    xlator_t *this = NULL;
     uint64_t nlookup = 0;
 
-    /*
-     * Root inode should always be in active list of inode table. So unrefs
-     * on root inode are no-ops.
-     */
-    if (__is_root_gfid(inode->gfid))
-        return inode;
+    if (caa_unlikely(do_root_gfid_check)) {
+        /*
+         * Root inode should always be in active list of inode table. So unrefs
+         * on root inode are no-ops.
+         */
+        if (__is_root_gfid(inode->gfid))
+            return inode;
+    }
 
     /*
      * No need to acquire inode table's lock
@@ -511,8 +514,6 @@ __inode_unref(inode_t *inode, bool clear)
          * has already started and inode refcount is 0.
          */
         return inode;
-
-    this = THIS;
 
     if (clear && inode->in_invalidate_list) {
         inode->in_invalidate_list = false;
@@ -598,15 +599,25 @@ inode_t *
 inode_unref(inode_t *inode)
 {
     inode_table_t *table = NULL;
+    xlator_t *this;
 
-    if (!inode)
+    if (caa_unlikely(!inode))
         return NULL;
+
+    /*
+     * Root inode should always be in active list of inode table. So unrefs
+     * on root inode are no-ops.
+     */
+    if (__is_root_gfid(inode->gfid))
+        return inode;
 
     table = inode->table;
 
+    this = THIS;
+
     pthread_mutex_lock(&table->lock);
     {
-        inode = __inode_unref(inode, false);
+        inode = __inode_unref(this, inode, false, false);
     }
     pthread_mutex_unlock(&table->lock);
 
@@ -1177,19 +1188,27 @@ int
 inode_forget_with_unref(inode_t *inode, uint64_t nlookup)
 {
     inode_table_t *table = NULL;
+    xlator_t *this = THIS;
 
-    if (!inode) {
-        gf_msg_callingfn(THIS->name, GF_LOG_WARNING, 0, LG_MSG_INODE_NOT_FOUND,
+    if (caa_unlikely(!inode)) {
+        gf_msg_callingfn(this->name, GF_LOG_WARNING, 0, LG_MSG_INODE_NOT_FOUND,
                          "inode not found");
         return -1;
     }
+
+    /*
+     * Root inode should always be in active list of inode table. So unrefs
+     * on root inode are no-ops.
+     */
+    if (__is_root_gfid(inode->gfid))
+        return 0;
 
     table = inode->table;
 
     pthread_mutex_lock(&table->lock);
     {
         inode_forget_atomic(inode, nlookup);
-        __inode_unref(inode, true);
+        __inode_unref(this, inode, true, false);
     }
     pthread_mutex_unlock(&table->lock);
 
@@ -1642,10 +1661,10 @@ inode_table_prune(inode_table_t *table)
         {
             if (!ret1) {
                 tmp->invalidate_sent = true;
-                __inode_unref(tmp, false);
+                __inode_unref(old_THIS, tmp, false, true);
             } else {
                 /* Move this back to the lru list*/
-                __inode_unref(tmp, true);
+                __inode_unref(old_THIS, tmp, true, true);
             }
         }
         pthread_mutex_unlock(&table->lock);
