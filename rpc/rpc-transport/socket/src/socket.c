@@ -56,7 +56,8 @@
 #if !defined(DEFAULT_VERIFY_DEPTH)
 #define DEFAULT_VERIFY_DEPTH 1
 #endif
-#define DEFAULT_CIPHER_LIST "AES128:EECDH:EDH:HIGH:!3DES:!RC4:!DES:!MD5:!aNULL:!eNULL"
+#define DEFAULT_CIPHER_LIST                                                    \
+    "AES128:EECDH:EDH:HIGH:!3DES:!RC4:!DES:!MD5:!aNULL:!eNULL"
 #define DEFAULT_DH_PARAM SSL_CERT_PATH "/dhparam.pem"
 #define DEFAULT_EC_CURVE "prime256v1"
 
@@ -1013,21 +1014,21 @@ __socket_nonblock(int fd)
 }
 
 static int
-__socket_nodelay(int fd)
+__socket_nodelay(xlator_t *this, int fd)
 {
     int on = 1;
-    int ret = -1;
+    int ret;
 
     ret = setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &on, sizeof(on));
     if (!ret)
-        gf_log(THIS->name, GF_LOG_TRACE, "NODELAY enabled for socket %d", fd);
+        gf_log(this->name, GF_LOG_TRACE, "NODELAY enabled for socket %d", fd);
 
     return ret;
 }
 
 static int
-__socket_keepalive(int fd, int family, int keepaliveintvl, int keepaliveidle,
-                   int keepalivecnt, int timeout)
+__socket_keepalive(xlator_t *this, int fd, int family, int keepaliveintvl,
+                   int keepaliveidle, int keepalivecnt, int timeout)
 {
     int on = 1;
     int ret = -1;
@@ -1106,7 +1107,7 @@ __socket_keepalive(int fd, int family, int keepaliveintvl, int keepaliveidle,
 #endif
 
 done:
-    gf_log(THIS->name, GF_LOG_TRACE,
+    gf_log(this->name, GF_LOG_TRACE,
            "Keep-alive enabled for socket: %d, "
            "(idle: %d, interval: %d, max-probes: %d, timeout: %d)",
            fd, keepaliveidle, keepaliveintvl, keepalivecnt, timeout);
@@ -2909,7 +2910,7 @@ socket_server_event_handler(int fd, int idx, int gen, void *data, int poll_in,
 
         if (new_sockaddr.ss_family != AF_UNIX) {
             if (priv->nodelay) {
-                ret = __socket_nodelay(new_sock);
+                ret = __socket_nodelay(this, new_sock);
                 if (ret != 0) {
                     gf_log(this->name, GF_LOG_WARNING,
                            "setsockopt() failed for "
@@ -2919,9 +2920,10 @@ socket_server_event_handler(int fd, int idx, int gen, void *data, int poll_in,
             }
 
             if (priv->keepalive) {
-                ret = __socket_keepalive(
-                    new_sock, new_sockaddr.ss_family, priv->keepaliveintvl,
-                    priv->keepaliveidle, priv->keepalivecnt, priv->timeout);
+                ret = __socket_keepalive(this, new_sock, new_sockaddr.ss_family,
+                                         priv->keepaliveintvl,
+                                         priv->keepaliveidle,
+                                         priv->keepalivecnt, priv->timeout);
                 if (ret != 0)
                     gf_log(this->name, GF_LOG_WARNING,
                            "Failed to set keep-alive: %s", strerror(errno));
@@ -3308,7 +3310,7 @@ socket_connect(rpc_transport_t *this, int port)
 
         if (sa_family != AF_UNIX) {
             if (priv->nodelay) {
-                ret = __socket_nodelay(priv->sock);
+                ret = __socket_nodelay(this, priv->sock);
                 if (ret != 0) {
                     gf_log(this->name, GF_LOG_ERROR,
                            "NODELAY on %d failed (%s)", priv->sock,
@@ -3318,7 +3320,7 @@ socket_connect(rpc_transport_t *this, int port)
 
             if (priv->keepalive) {
                 ret = __socket_keepalive(
-                    priv->sock, sa_family, priv->keepaliveintvl,
+                    this, priv->sock, sa_family, priv->keepaliveintvl,
                     priv->keepaliveidle, priv->keepalivecnt, priv->timeout);
                 if (ret != 0)
                     gf_log(this->name, GF_LOG_ERROR,
@@ -3567,7 +3569,7 @@ socket_listen(rpc_transport_t *this)
         }
 
         if (priv->nodelay && (sa_family != AF_UNIX)) {
-            ret = __socket_nodelay(priv->sock);
+            ret = __socket_nodelay(this, priv->sock);
             if (ret != 0) {
                 gf_log(this->name, GF_LOG_ERROR,
                        "setsockopt() failed for NODELAY (%s)", strerror(errno));

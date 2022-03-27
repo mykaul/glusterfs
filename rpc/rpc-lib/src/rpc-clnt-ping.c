@@ -185,7 +185,7 @@ rpc_clnt_ping_cbk(struct rpc_req *req, struct iovec *iov, int count,
     timespec_sub(&local->submit_time, &now, &delta);
     latency_msec = delta.tv_sec * 1000 + delta.tv_nsec / 1000000;
 
-    gf_log(THIS->name, GF_LOG_DEBUG, "Ping latency is %" PRIu64 "ms",
+    gf_log(this->name, GF_LOG_DEBUG, "Ping latency is %" PRIu64 "ms",
            latency_msec);
     call_notify = _gf_true;
 
@@ -236,8 +236,8 @@ out:
     return 0;
 }
 
-int
-rpc_clnt_ping(struct rpc_clnt *rpc)
+static int
+rpc_clnt_ping(xlator_t *this, struct rpc_clnt *rpc)
 {
     call_frame_t *frame = NULL;
     int32_t ret = -1;
@@ -248,7 +248,8 @@ rpc_clnt_ping(struct rpc_clnt *rpc)
     local = GF_MALLOC(sizeof(struct ping_local), gf_common_ping_local_t);
     if (!local)
         return ret;
-    frame = create_frame(THIS, THIS->ctx->pool);
+
+    frame = create_frame(this, this->ctx->pool);
     if (!frame) {
         GF_FREE(local);
         return ret;
@@ -263,7 +264,7 @@ rpc_clnt_ping(struct rpc_clnt *rpc)
                           NULL);
     if (ret) {
         /* FIXME: should we free the frame here? Methinks so! */
-        gf_log(THIS->name, GF_LOG_ERROR, "failed to start ping timer");
+        gf_log(this->name, GF_LOG_ERROR, "failed to start ping timer");
     } else {
         /* ping successfully queued in list of saved frames
          * for the connection*/
@@ -278,6 +279,7 @@ rpc_clnt_ping(struct rpc_clnt *rpc)
 static void
 rpc_clnt_start_ping(void *rpc_ptr)
 {
+    xlator_t *this = THIS;
     struct rpc_clnt *rpc = NULL;
     rpc_clnt_connection_t *conn = NULL;
     int frame_count = 0;
@@ -287,7 +289,7 @@ rpc_clnt_start_ping(void *rpc_ptr)
     conn = &rpc->conn;
 
     if (conn->ping_timeout == 0) {
-        gf_log(THIS->name, GF_LOG_DEBUG,
+        gf_log(this->name, GF_LOG_DEBUG,
                "ping timeout is 0,"
                " returning");
         return;
@@ -305,7 +307,7 @@ rpc_clnt_start_ping(void *rpc_ptr)
         }
 
         if ((frame_count == 0) || conn->status != RPC_STATUS_CONNECTED) {
-            gf_log(THIS->name, GF_LOG_DEBUG,
+            gf_log(this->name, GF_LOG_DEBUG,
                    "returning because transport is %s %s there are %s\n",
                    ((conn->status == RPC_STATUS_CONNECTED) ? "connected"
                                                            : "disconnected"),
@@ -322,7 +324,7 @@ rpc_clnt_start_ping(void *rpc_ptr)
 
         if (__rpc_clnt_rearm_ping_timer(rpc, rpc_clnt_ping_timer_expired) ==
             -1) {
-            gf_log(THIS->name, GF_LOG_WARNING, "unable to setup ping timer");
+            gf_log(this->name, GF_LOG_WARNING, "unable to setup ping timer");
             pthread_mutex_unlock(&conn->lock);
             if (unref)
                 rpc_clnt_unref(rpc);
@@ -333,7 +335,7 @@ rpc_clnt_start_ping(void *rpc_ptr)
     if (unref)
         rpc_clnt_unref(rpc);
 
-    rpc_clnt_ping(rpc);
+    rpc_clnt_ping(this, rpc);
 }
 
 void
