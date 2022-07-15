@@ -479,8 +479,9 @@ pl_inode_get(xlator_t *this, inode_t *inode, pl_local_t *local)
 unlock:
     UNLOCK(&inode->lock);
 
-    if ((pl_inode != NULL) && pl_is_mandatory_locking_enabled(pl_inode) &&
-        pl_inode->check_mlock_info && local) {
+    if ((pl_inode != NULL) && local &&
+        pl_is_mandatory_locking_enabled(this, pl_inode) &&
+        pl_inode->check_mlock_info) {
         /* Note: The lock enforcement information per file can be stored in the
            attribute flag of stat(x) in posix. With that there won't be a need
            for doing getxattr post a reboot
@@ -1232,9 +1233,9 @@ pl_lock_preempt(pl_inode_t *pl_inode, posix_lock_t *reqlock)
  * semantics under different modes.
  */
 gf_boolean_t
-pl_is_mandatory_locking_enabled(pl_inode_t *pl_inode)
+pl_is_mandatory_locking_enabled(xlator_t *this, pl_inode_t *pl_inode)
 {
-    posix_locks_private_t *priv = THIS->private;
+    posix_locks_private_t *priv = this->private;
 
     if (priv->mandatory_mode == MLK_FILE_BASED && pl_inode->mandatory)
         return _gf_true;

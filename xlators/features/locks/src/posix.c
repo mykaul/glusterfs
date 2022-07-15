@@ -131,7 +131,7 @@ set_bit(uint32_t *byte, uint32_t bit_number);
                 op_errno = ENOMEM;                                             \
                 goto unwind;                                                   \
             }                                                                  \
-            if (!pl_is_mandatory_locking_enabled(__pl_inode) ||                \
+            if (!pl_is_mandatory_locking_enabled(this, __pl_inode) ||          \
                 !priv->mlock_enforced) {                                       \
                 op_ret = -1;                                                   \
                 gf_msg(this->name, GF_LOG_DEBUG, EINVAL, 0,                    \
@@ -312,7 +312,10 @@ __get_posixlk_count(pl_inode_t *pl_inode)
     posix_lock_t *lock = NULL;
     int32_t count = 0;
 
-    list_for_each_entry(lock, &pl_inode->ext_list, list) { count++; }
+    list_for_each_entry(lock, &pl_inode->ext_list, list)
+    {
+        count++;
+    }
 
     return count;
 }
@@ -693,10 +696,8 @@ pl_discard(call_frame_t *frame, xlator_t *this, fd_t *fd, off_t offset,
         goto unwind;
     }
 
-    if (frame->root->pid < 0)
-        enabled = _gf_false;
-    else
-        enabled = pl_is_mandatory_locking_enabled(pl_inode);
+    if (frame->root->pid >= 0)
+        enabled = pl_is_mandatory_locking_enabled(this, pl_inode);
 
     if (enabled) {
         region.fl_start = offset;
@@ -819,10 +820,8 @@ pl_zerofill(call_frame_t *frame, xlator_t *this, fd_t *fd, off_t offset,
         goto unwind;
     }
 
-    if (frame->root->pid < 0)
-        enabled = _gf_false;
-    else
-        enabled = pl_is_mandatory_locking_enabled(pl_inode);
+    if (frame->root->pid >= 0)
+        enabled = pl_is_mandatory_locking_enabled(this, pl_inode);
 
     if (enabled) {
         region.fl_start = offset;
@@ -965,10 +964,8 @@ truncate_stat_cbk(call_frame_t *frame, void *cookie, xlator_t *this,
         goto unwind;
     }
 
-    if (frame->root->pid < 0)
-        enabled = _gf_false;
-    else
-        enabled = pl_is_mandatory_locking_enabled(pl_inode);
+    if (frame->root->pid >= 0)
+        enabled = pl_is_mandatory_locking_enabled(this, pl_inode);
 
     if (enabled) {
         region.fl_start = local->offset;
@@ -2235,10 +2232,8 @@ pl_readv(call_frame_t *frame, xlator_t *this, fd_t *fd, size_t size,
         goto unwind;
     }
 
-    if (frame->root->pid < 0)
-        enabled = _gf_false;
-    else
-        enabled = pl_is_mandatory_locking_enabled(pl_inode);
+    if (frame->root->pid >= 0)
+        enabled = pl_is_mandatory_locking_enabled(this, pl_inode);
 
     if (enabled) {
         region.fl_start = offset;
@@ -2353,10 +2348,8 @@ pl_writev(call_frame_t *frame, xlator_t *this, fd_t *fd, struct iovec *vector,
         goto unwind;
     }
 
-    if (frame->root->pid < 0)
-        enabled = _gf_false;
-    else
-        enabled = pl_is_mandatory_locking_enabled(pl_inode);
+    if (frame->root->pid >= 0)
+        enabled = pl_is_mandatory_locking_enabled(this, pl_inode);
 
     if (enabled) {
         region.fl_start = offset;

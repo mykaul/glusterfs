@@ -52,11 +52,7 @@
         }                                                                      \
     } while (0)
 
-enum {
-    PL_LOCK_GRANTED = 0,
-    PL_LOCK_WOULD_BLOCK,
-    PL_LOCK_QUEUED
-};
+enum { PL_LOCK_GRANTED = 0, PL_LOCK_WOULD_BLOCK, PL_LOCK_QUEUED };
 
 posix_lock_t *
 new_posix_lock(struct gf_flock *flock, client_t *client, pid_t client_pid,
@@ -233,7 +229,7 @@ gf_boolean_t
 pl_does_monkey_want_stuck_lock();
 
 gf_boolean_t
-pl_is_mandatory_locking_enabled(pl_inode_t *pl_inode);
+pl_is_mandatory_locking_enabled(xlator_t *this, pl_inode_t *pl_inode);
 
 void
 pl_clean_local(pl_local_t *local);
