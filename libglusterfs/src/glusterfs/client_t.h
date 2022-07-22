@@ -30,13 +30,15 @@ struct client_ctx {
     void *ctx_value;
 };
 
+typedef struct _scratch_ctx {
+    /* e.g. protocol/server stashes its ctx here */
+    gf_lock_t lock;
+    unsigned short count;
+    struct client_ctx *ctx;
+} scratch_ctx_t;
+
 typedef struct _client {
-    struct {
-        /* e.g. protocol/server stashes its ctx here */
-        gf_lock_t lock;
-        unsigned short count;
-        struct client_ctx *ctx;
-    } scratch_ctx;
+    scratch_ctx_t scratch_ctx;
     gf_atomic_t bind;
     gf_atomic_t count;
     xlator_t *bound_xl;
@@ -115,8 +117,8 @@ gf_client_dump_inodes(xlator_t *this);
 void *
 client_ctx_set(client_t *client, void *key, void *value);
 
-int
-client_ctx_get(client_t *client, void *key, void **value);
+void *
+client_ctx_get(client_t *client, void *key);
 
 int
 client_ctx_del(client_t *client, void *key, void **value);
