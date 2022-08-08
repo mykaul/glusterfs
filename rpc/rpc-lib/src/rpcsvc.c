@@ -104,17 +104,17 @@ rpcsvc_get_free_queue_index(rpcsvc_program_t *prog)
 }
 
 static rpcsvc_notify_wrapper_t *
-rpcsvc_notify_wrapper_alloc(void)
+rpcsvc_notify_wrapper_alloc(rpcsvc_notify_t notify, void *mydata)
 {
     rpcsvc_notify_wrapper_t *wrapper = NULL;
 
-    wrapper = GF_CALLOC(1, sizeof(*wrapper), gf_common_mt_rpcsvc_wrapper_t);
-    if (!wrapper) {
-        goto out;
+    wrapper = GF_MALLOC(sizeof(*wrapper), gf_common_mt_rpcsvc_wrapper_t);
+    if (wrapper) {
+        INIT_LIST_HEAD(&wrapper->list);
+        wrapper->data = mydata;
+        wrapper->notify = notify;
     }
 
-    INIT_LIST_HEAD(&wrapper->list);
-out:
     return wrapper;
 }
 
@@ -2129,7 +2129,7 @@ rpcsvc_register_notify(rpcsvc_t *svc, rpcsvc_notify_t notify, void *mydata)
     rpcsvc_notify_wrapper_t *wrapper = NULL;
     int ret = -1;
 
-    wrapper = rpcsvc_notify_wrapper_alloc();
+    wrapper = rpcsvc_notify_wrapper_alloc(notify, mydata);
     if (!wrapper) {
         goto out;
     }
@@ -2274,7 +2274,7 @@ rpcsvc_program_register(rpcsvc_t *svc, rpcsvc_program_t *program,
         goto out;
     }
 
-    newprog = GF_CALLOC(1, sizeof(*newprog), gf_common_mt_rpcsvc_program_t);
+    newprog = GF_MALLOC(sizeof(*newprog), gf_common_mt_rpcsvc_program_t);
     if (newprog == NULL) {
         goto out;
     }
