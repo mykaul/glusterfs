@@ -57,19 +57,22 @@ static struct rpcsvc_program gluster_dump_prog;
         }                                                                      \
     } while (0)
 
-rpcsvc_listener_t *
+static rpcsvc_listener_t *
 rpcsvc_get_listener(rpcsvc_t *svc, uint16_t port, rpc_transport_t *trans);
 
-int
+static int
 rpcsvc_notify(rpc_transport_t *trans, void *mydata, rpc_transport_event_t event,
               void *data, ...);
-void *
+static void *
 rpcsvc_request_handler(void *arg);
 
 #ifdef BUILD_GNFS
 static int
 rpcsvc_match_subnet_v4(const char *addrtok, const char *ipaddr);
 #endif
+
+static int
+rpcsvc_error_reply(rpcsvc_request_t *req);
 
 static void
 rpcsvc_toggle_queue_status(rpcsvc_program_t *prog,
@@ -82,7 +85,7 @@ rpcsvc_toggle_queue_status(rpcsvc_program_t *prog,
                                                       __BITS_PER_LONG));
 }
 
-int
+static int
 rpcsvc_get_free_queue_index(rpcsvc_program_t *prog)
 {
     unsigned i, j = 0;
@@ -100,7 +103,7 @@ rpcsvc_get_free_queue_index(rpcsvc_program_t *prog)
     return i * __BITS_PER_LONG + j;
 }
 
-rpcsvc_notify_wrapper_t *
+static rpcsvc_notify_wrapper_t *
 rpcsvc_notify_wrapper_alloc(void)
 {
     rpcsvc_notify_wrapper_t *wrapper = NULL;
@@ -181,7 +184,7 @@ rpcsvc_get_program_vector_sizer(rpcsvc_t *svc, uint32_t prognum,
     return NULL; /* FAIL */
 }
 
-gf_boolean_t
+static gf_boolean_t
 rpcsvc_can_outstanding_req_be_ignored(rpcsvc_request_t *req)
 {
     /*
@@ -212,7 +215,20 @@ rpcsvc_can_outstanding_req_be_ignored(rpcsvc_request_t *req)
     return _gf_false;
 }
 
-int
+/*
+ * Get throttle state for rpcsvc_t svc.
+ * Returns value of attribute throttle on success, _gf_false otherwise.
+ */
+static gf_boolean_t
+rpcsvc_get_throttle(rpcsvc_t *svc)
+{
+    if (!svc)
+        return _gf_false;
+
+    return svc->throttle;
+}
+
+static int
 rpcsvc_request_outstanding(rpcsvc_request_t *req, int delta)
 {
     int ret = -1;
@@ -220,9 +236,6 @@ rpcsvc_request_outstanding(rpcsvc_request_t *req, int delta)
     int new_count = 0;
     int limit = 0;
     gf_boolean_t throttle = _gf_false;
-
-    if (!req)
-        goto out;
 
     throttle = rpcsvc_get_throttle(req->svc);
     if (!throttle) {
@@ -369,10 +382,6 @@ rpcsvc_program_notify(rpcsvc_listener_t *listener, rpcsvc_event_t event,
     rpcsvc_notify_wrapper_t *wrapper = NULL;
     int ret = 0;
 
-    if (!listener) {
-        goto out;
-    }
-
     list_for_each_entry(wrapper, &listener->svc->notify, list)
     {
         if (wrapper->notify) {
@@ -383,7 +392,6 @@ rpcsvc_program_notify(rpcsvc_listener_t *listener, rpcsvc_event_t event,
         }
     }
 
-out:
     return ret;
 }
 
@@ -404,7 +412,7 @@ out:
     return ret;
 }
 
-void
+static void
 rpcsvc_request_destroy(rpcsvc_request_t *req)
 {
     if (!req) {
@@ -433,7 +441,7 @@ out:
     return;
 }
 
-rpcsvc_request_t *
+static rpcsvc_request_t *
 rpcsvc_request_init(rpcsvc_t *svc, rpc_transport_t *trans,
                     struct rpc_msg *callmsg, struct iovec progmsg,
                     rpc_transport_pollin_t *msg, rpcsvc_request_t *req)
@@ -475,7 +483,7 @@ rpcsvc_request_init(rpcsvc_t *svc, rpc_transport_t *trans,
     return req;
 }
 
-rpcsvc_request_t *
+static rpcsvc_request_t *
 rpcsvc_request_create(rpcsvc_t *svc, rpc_transport_t *trans,
                       rpc_transport_pollin_t *msg)
 {
@@ -593,28 +601,27 @@ err:
     return req;
 }
 
-int
+static int
 rpcsvc_check_and_reply_error(int ret, call_frame_t *frame, void *opaque)
 {
     rpcsvc_request_t *req = NULL;
 
-    req = opaque;
-
-    if (ret)
+    if (ret) {
+        req = opaque;
         gf_log("rpcsvc", GF_LOG_ERROR,
                "rpc actor (%d:%d:%d) failed to complete successfully",
                req->prognum, req->progver, req->procnum);
 
-    if (ret == RPCSVC_ACTOR_ERROR) {
-        ret = rpcsvc_error_reply(req);
-        if (ret)
-            gf_log("rpcsvc", GF_LOG_WARNING, "failed to queue error reply");
+        if (ret == RPCSVC_ACTOR_ERROR) {
+            ret = rpcsvc_error_reply(req);
+            if (ret)
+                gf_log("rpcsvc", GF_LOG_WARNING, "failed to queue error reply");
+        }
     }
-
     return 0;
 }
 
-void
+static void
 rpcsvc_queue_event_thread_death(rpcsvc_t *svc, rpcsvc_program_t *prog, int gen)
 {
     rpcsvc_request_queue_t *queue = NULL;
@@ -663,7 +670,7 @@ rpcsvc_queue_event_thread_death(rpcsvc_t *svc, rpcsvc_program_t *prog, int gen)
     return;
 }
 
-int
+static int
 rpcsvc_handle_event_thread_death(rpcsvc_t *svc, rpc_transport_t *trans, int gen)
 {
     rpcsvc_program_t *prog = NULL;
@@ -681,7 +688,7 @@ rpcsvc_handle_event_thread_death(rpcsvc_t *svc, rpc_transport_t *trans, int gen)
     return 0;
 }
 
-int
+static int
 rpcsvc_handle_rpc_call(rpcsvc_t *svc, rpc_transport_t *trans,
                        rpc_transport_pollin_t *msg)
 {
@@ -899,7 +906,7 @@ out:
     return ret;
 }
 
-int
+static int
 rpcsvc_handle_disconnect(rpcsvc_t *svc, rpc_transport_t *trans)
 {
     rpcsvc_event_t event;
@@ -949,7 +956,7 @@ unlock:
     return ret;
 }
 
-int
+static int
 rpcsvc_notify(rpc_transport_t *trans, void *mydata, rpc_transport_event_t event,
               void *data, ...)
 {
@@ -1025,7 +1032,7 @@ out:
 /* Given the RPC reply structure and the payload handed by the RPC program,
  * encode the RPC record header into the buffer pointed by recordstart.
  */
-struct iovec
+static struct iovec
 rpcsvc_record_build_header(char *recordstart, size_t rlen, struct rpc_msg reply,
                            size_t payload)
 {
@@ -1075,16 +1082,10 @@ rpc_callback_new_callid(struct rpc_transport *trans)
     return callid;
 }
 
-int
+static void
 rpcsvc_fill_callback(int prognum, int progver, int procnum, int payload,
                      uint32_t xid, struct rpc_msg *request)
 {
-    int ret = -1;
-
-    if (!request) {
-        goto out;
-    }
-
     memset(request, 0, sizeof(*request));
 
     request->rm_xid = xid;
@@ -1102,13 +1103,9 @@ rpcsvc_fill_callback(int prognum, int progver, int procnum, int payload,
     request->rm_call.cb_verf.oa_flavor = AUTH_NONE;
     request->rm_call.cb_verf.oa_base = NULL;
     request->rm_call.cb_verf.oa_length = 0;
-
-    ret = 0;
-out:
-    return ret;
 }
 
-struct iovec
+static struct iovec
 rpcsvc_callback_build_header(char *recordstart, size_t rlen,
                              struct rpc_msg *request, size_t payload)
 {
@@ -1159,22 +1156,13 @@ rpcsvc_callback_build_record(rpcsvc_t *rpc, int prognum, int progver,
     };
     size_t pagesize = 0;
     size_t xdr_size = 0;
-    int ret = -1;
 
     if ((!rpc) || (!recbuf)) {
         goto out;
     }
 
     /* Fill the rpc structure and XDR it into the buffer got above. */
-    ret = rpcsvc_fill_callback(prognum, progver, procnum, payload, xid,
-                               &request);
-    if (ret == -1) {
-        gf_log("rpcsvc", GF_LOG_WARNING,
-               "cannot build a rpc-request "
-               "xid (%lu)",
-               xid);
-        goto out;
-    }
+    rpcsvc_fill_callback(prognum, progver, procnum, payload, xid, &request);
 
     /* First, try to get a pointer into the buffer which the RPC
      * layer can use.
@@ -1364,15 +1352,12 @@ out:
     return ret;
 }
 
-int
+static int
 rpcsvc_fill_reply(rpcsvc_request_t *req, struct rpc_msg *reply)
 {
-    int ret = -1;
+    int ret = 0;
     rpcsvc_program_t *prog = NULL;
-    if ((!req) || (!reply))
-        goto out;
 
-    ret = 0;
     rpc_fill_empty_reply(reply, req->xid);
     if (req->rpc_status == MSG_DENIED) {
         rpc_fill_denied_reply(reply, req->rpc_err, req->auth_err);
@@ -1401,7 +1386,7 @@ out:
  * The only reason it is needed here is that in case the buffer is provided,
  * we should account for the length of that buffer in the RPC fragment header.
  */
-struct iobuf *
+static struct iobuf *
 rpcsvc_record_build_record(rpcsvc_request_t *req, size_t payload, size_t hdrlen,
                            struct iovec *recbuf)
 {
@@ -1589,7 +1574,7 @@ disconnect_exit:
     return ret;
 }
 
-int
+static int
 rpcsvc_error_reply(rpcsvc_request_t *req)
 {
     struct iovec dummyvec = {
@@ -1954,7 +1939,7 @@ rpcsvc_transport_peeraddr(rpc_transport_t *trans, char *addrstr, int addrlen,
 #endif
 }
 
-rpcsvc_listener_t *
+static rpcsvc_listener_t *
 rpcsvc_listener_alloc(rpcsvc_t *svc, rpc_transport_t *trans)
 {
     rpcsvc_listener_t *listener = NULL;
@@ -1978,16 +1963,12 @@ out:
     return listener;
 }
 
-int32_t
+static int32_t
 rpcsvc_create_listener(rpcsvc_t *svc, dict_t *options, char *name)
 {
     rpc_transport_t *trans = NULL;
     rpcsvc_listener_t *listener = NULL;
     int32_t ret = -1;
-
-    if (!svc || !options) {
-        goto out;
-    }
 
     trans = rpc_transport_load(svc->ctx, options, name);
     if (!trans) {
@@ -2168,7 +2149,7 @@ out:
     return ret;
 }
 
-void *
+static void *
 rpcsvc_request_handler(void *arg)
 {
     rpcsvc_request_queue_t *queue = NULL;
@@ -2498,7 +2479,7 @@ sendrsp:
     return ret;
 }
 
-int
+static int
 rpcsvc_init_options(rpcsvc_t *svc, dict_t *options)
 {
     char *optstr = NULL;
@@ -2723,34 +2704,6 @@ rpcsvc_set_throttle_on(rpcsvc_t *svc)
 #endif
 
     return 0;
-}
-
-/*
- * Disable throttling for rpcsvc_t svc.
- * Returns 0 on success, -1 otherwise.
- */
-int
-rpcsvc_set_throttle_off(rpcsvc_t *svc)
-{
-    if (!svc)
-        return -1;
-
-    svc->throttle = _gf_false;
-
-    return 0;
-}
-
-/*
- * Get throttle state for rpcsvc_t svc.
- * Returns value of attribute throttle on success, _gf_false otherwise.
- */
-gf_boolean_t
-rpcsvc_get_throttle(rpcsvc_t *svc)
-{
-    if (!svc)
-        return _gf_false;
-
-    return svc->throttle;
 }
 
 /* Function call to cleanup resources for svc

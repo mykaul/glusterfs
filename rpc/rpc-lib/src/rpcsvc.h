@@ -529,9 +529,6 @@ rpcsvc_submit_generic(rpcsvc_request_t *req, struct iovec *proghdr,
                       int hdrcount, struct iovec *payload, int payloadcount,
                       struct iobref *iobref);
 
-extern int
-rpcsvc_error_reply(rpcsvc_request_t *req);
-
 #define RPCSVC_PEER_STRLEN 1024
 #define RPCSVC_AUTH_ACCEPT 1
 #define RPCSVC_AUTH_REJECT 2
@@ -646,12 +643,6 @@ rpcsvc_set_outstanding_rpc_limit(rpcsvc_t *svc, dict_t *options, int defvalue);
 
 int
 rpcsvc_set_throttle_on(rpcsvc_t *svc);
-
-int
-rpcsvc_set_throttle_off(rpcsvc_t *svc);
-
-gf_boolean_t
-rpcsvc_get_throttle(rpcsvc_t *svc);
 
 int
 rpcsvc_auth_array(rpcsvc_t *svc, char *volname, int *autharr, int arrlen);
