@@ -60,8 +60,6 @@ typedef struct rpcsvc_state {
     struct list_head notify;
     int notify_count;
 
-    unsigned int memfactor;
-
     xlator_t *xl; /* xlator */
     void *mydata;
     rpcsvc_notify_t notifyfn;

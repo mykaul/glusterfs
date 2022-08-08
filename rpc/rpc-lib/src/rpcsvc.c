@@ -2496,8 +2496,6 @@ rpcsvc_init_options(rpcsvc_t *svc, dict_t *options)
     if ((!svc) || (!options))
         return -1;
 
-    svc->memfactor = RPCSVC_DEFAULT_MEMFACTOR;
-
     svc->register_portmap = _gf_true;
     if (dict_get(options, "rpc.register-with-portmap")) {
         ret = dict_get_str(options, "rpc.register-with-portmap", &optstr);
@@ -2808,7 +2806,7 @@ rpcsvc_init(xlator_t *xl, glusterfs_ctx_t *ctx, dict_t *options,
     }
 
     if (!poolcount)
-        poolcount = RPCSVC_POOLCOUNT_MULT * svc->memfactor;
+        poolcount = RPCSVC_POOLCOUNT_MULT * RPCSVC_DEFAULT_MEMFACTOR;
 
     gf_log(GF_RPCSVC, GF_LOG_TRACE, "rx pool: %d", poolcount);
     svc->rxpool = mem_pool_new(rpcsvc_request_t, poolcount);
